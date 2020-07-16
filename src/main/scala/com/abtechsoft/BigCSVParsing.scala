@@ -19,41 +19,47 @@ object BigCSVParsing extends IOApp {
                  quantity: String)
   val dataset = new File("input.csv")
   val output = new File("output.json")
+
+  val parseCsv: Pipe[IO, Byte, Row] = _.through(text.utf8Decode)
+    .through(text.lines)
+    .map(str => {
+      println(str.split(",").toList)
+      str.split(",")
+    })
+    .collect({
+      case Array(
+          code,
+          url,
+          creator,
+          createdAt,
+          lastModifiedAt,
+          productName,
+          genericName,
+          quantity
+          ) =>
+        Row(
+          code,
+          url,
+          creator,
+          createdAt,
+          lastModifiedAt,
+          productName,
+          genericName,
+          quantity
+        )
+    })
+
+  val rowToJson:Pipe[IO,Row,Byte] = _.map(_.asJson.noSpaces)
+    .intersperse("\n")
+    .through(text.utf8Encode)
+
   override def run(args: List[String]): IO[ExitCode] = {
     Blocker[IO]
       .use(blocker => {
         fs2.io.file
           .readAll[IO](dataset.toPath, blocker, 4096)
-          .through(text.utf8Decode)
-          .through(text.lines)
-          .map(str=>{
-            println(str.split(",").toList)
-            str.split(",")
-          })
-          .collect({
-            case Array(
-                code,
-                url,
-                creator,
-                createdAt,
-                lastModifiedAt,
-                productName,
-                genericName,
-                quantity
-                ) =>
-              Row(
-                code,
-                url,
-                creator,
-                createdAt,
-                lastModifiedAt,
-                productName,
-                genericName,
-                quantity
-              )
-          })
-          .map(_.asJson.noSpaces)
-          .through(text.utf8Encode)
+          .through(parseCsv)
+          .through(rowToJson)
           .through(fs2.io.file.writeAll(output.toPath, blocker))
           .compile
           .drain >> IO(println("Done!"))
